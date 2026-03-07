@@ -393,12 +393,13 @@ print_summary() {
     if [ -n "${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
         echo -e "  OpenClaw Gateway Token: ${CYAN}$OPENCLAW_GATEWAY_TOKEN${NC}"
         echo "  (stored in ~/.openclaw/openclaw.json)"
+        echo ""
+        echo "  To connect a browser to OpenClaw:"
+        echo "    1. Open this URL to set the token:"
+        echo -e "       ${CYAN}https://$HOST_IP/openclaw/token=$OPENCLAW_GATEWAY_TOKEN${NC}"
+        echo "    2. Approve the device pairing on the server:"
+        echo "       sudo ./approve-pairing.sh"
     fi
-    echo ""
-    echo "  To pair a new browser with OpenClaw:"
-    echo "    1. Open https://$HOST_IP/openclaw/ in your browser"
-    echo "    2. If you see 'pairing required', run on the server:"
-    echo "       sudo docker exec -it openclaw openclaw devices approve"
     echo ""
     if [ -n "${OLLAMA_MODEL:-}" ]; then
         echo -e "  Loaded model: ${CYAN}$OLLAMA_MODEL${NC}"
