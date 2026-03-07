@@ -239,7 +239,7 @@ start_containers() {
 # Configure OpenClaw gateway tokens and allowed origins
 # ------------------------------------------------------------------
 configure_openclaw() {
-    local CONFIG_FILE="$OPENCLAW_HOME/.openclaw/openclaw.json"
+    local CONFIG_FILE="$OPENCLAW_HOME/openclaw.json"
 
     log_info "Waiting for OpenClaw to initialize..."
     RETRIES=0
