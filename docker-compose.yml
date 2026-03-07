@@ -20,8 +20,6 @@ services:
     volumes:
       - ${OPENCLAW_HOME:-~/.openclaw}:/home/node/.openclaw
     environment:
-      - OPENCLAW_GATEWAY_BIND=lan
-      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
       - OPENCLAW_SANDBOX=${OPENCLAW_SANDBOX:-false}
 
   open-webui:

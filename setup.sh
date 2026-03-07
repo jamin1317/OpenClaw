@@ -89,7 +89,7 @@ install_docker() {
 install_prerequisites() {
     log_info "Installing prerequisites..."
     apt-get update -y
-    apt-get install -y curl git jq openssl
+    apt-get install -y curl git jq openssl python3
     log_info "Prerequisites installed."
 }
 
@@ -101,14 +101,7 @@ configure_env() {
     echo -e "${CYAN}--- Configuration ---${NC}"
     echo ""
 
-    # --- OpenClaw Gateway Token ---
-    DEFAULT_GW_TOKEN=$(openssl rand -hex 32)
-    echo "OpenClaw uses a gateway token to authenticate API requests."
-    read -rp "OpenClaw Gateway Token [auto-generated]: " OPENCLAW_GATEWAY_TOKEN
-    OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-$DEFAULT_GW_TOKEN}"
-
     # --- OpenClaw Sandbox ---
-    echo ""
     echo "Enable OpenClaw sandbox mode? (isolates agent execution)"
     read -rp "Enable sandbox? (y/N): " SANDBOX_CHOICE
     SANDBOX_CHOICE="${SANDBOX_CHOICE:-N}"
@@ -187,7 +180,6 @@ configure_env() {
 
 # OpenClaw
 OPENCLAW_HOME=$OPENCLAW_HOME
-OPENCLAW_GATEWAY_TOKEN=$OPENCLAW_GATEWAY_TOKEN
 OPENCLAW_SANDBOX=$OPENCLAW_SANDBOX
 
 # Open WebUI
@@ -200,7 +192,7 @@ EOF
 }
 
 # ------------------------------------------------------------------
-# Create certs directory
+# Prepare directories
 # ------------------------------------------------------------------
 prepare_dirs() {
     mkdir -p "$SCRIPT_DIR/nginx/certs"
@@ -236,41 +228,62 @@ start_containers() {
 }
 
 # ------------------------------------------------------------------
-# Configure OpenClaw gateway tokens and allowed origins
+# Configure OpenClaw: run setup, set gateway config, sync tokens
 # ------------------------------------------------------------------
 configure_openclaw() {
     local CONFIG_FILE="$OPENCLAW_HOME/openclaw.json"
+    local HOST_IP
+    HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
 
-    log_info "Waiting for OpenClaw to initialize..."
+    # Run openclaw setup to generate initial config
+    log_info "Running OpenClaw initial setup..."
+    docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw setup 2>&1 || true
+    sleep 3
+
+    # Configure gateway via CLI: bind=lan, auth=token, port=18789
+    log_info "Configuring OpenClaw gateway..."
+    docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw config set gateway.mode local 2>/dev/null || true
+    docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw config set gateway.bind lan 2>/dev/null || true
+    docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw config set gateway.port 18789 2>/dev/null || true
+    docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw config set gateway.auth.mode token 2>/dev/null || true
+
+    # Wait for config file to exist
     RETRIES=0
-    MAX_RETRIES=30
+    MAX_RETRIES=15
     until [ -f "$CONFIG_FILE" ]; do
         RETRIES=$((RETRIES + 1))
         if [ "$RETRIES" -ge "$MAX_RETRIES" ]; then
-            log_warn "OpenClaw config not found at $CONFIG_FILE — skipping token sync."
+            log_warn "OpenClaw config not found at $CONFIG_FILE — manual configuration may be needed."
             return
         fi
         sleep 2
     done
-    sleep 2
 
-    HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
-
-    log_info "Syncing gateway token and configuring allowed origins..."
+    # Read the token that OpenClaw generated, sync remote.token, add allowed origins
+    log_info "Syncing tokens and configuring allowed origins..."
     python3 << PYEOF
 import json
 
 config_path = "$CONFIG_FILE"
-token = "$OPENCLAW_GATEWAY_TOKEN"
 host_ip = "$HOST_IP"
 
 with open(config_path, "r") as f:
     config = json.load(f)
 
-# Sync auth and remote tokens to match the env var
-config.setdefault("gateway", {})
-config["gateway"].setdefault("auth", {})["token"] = token
-config["gateway"].setdefault("remote", {})["token"] = token
+# Ensure gateway.auth.token exists (generate one if somehow missing)
+gw = config.setdefault("gateway", {})
+auth = gw.setdefault("auth", {})
+if not auth.get("token"):
+    import secrets
+    auth["token"] = secrets.token_hex(24)
+    auth["mode"] = "token"
+
+# Sync remote.token to match auth.token
+token = auth["token"]
+gw.setdefault("remote", {})["token"] = token
+
+# Set bind to lan
+gw["bind"] = "lan"
 
 # Add host IP to allowed origins for Control UI access
 if host_ip:
@@ -278,18 +291,22 @@ if host_ip:
         "https://" + host_ip + ":18789",
         "http://" + host_ip + ":18789",
     ]
-    config["gateway"].setdefault("controlUi", {})
-    existing = config["gateway"]["controlUi"].get("allowedOrigins", [])
+    cui = gw.setdefault("controlUi", {})
+    existing = cui.get("allowedOrigins", [])
     for origin in origins:
         if origin not in existing:
             existing.append(origin)
-    config["gateway"]["controlUi"]["allowedOrigins"] = existing
+    cui["allowedOrigins"] = existing
 
 with open(config_path, "w") as f:
     json.dump(config, f, indent=2)
 
-print("Token synced and allowed origins configured.")
+print("OPENCLAW_TOKEN=" + token)
 PYEOF
+
+    # Read the token back for use in the summary
+    OPENCLAW_GATEWAY_TOKEN=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE'))['gateway']['auth']['token'])")
+    export OPENCLAW_GATEWAY_TOKEN
 
     chown 1000:1000 "$CONFIG_FILE"
 
@@ -297,10 +314,6 @@ PYEOF
     log_info "Restarting OpenClaw to apply configuration..."
     docker compose -f "$COMPOSE_FILE" restart openclaw
     sleep 5
-
-    # Approve all pending devices
-    log_info "Approving pending devices..."
-    docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw devices approve --all 2>/dev/null || true
 
     log_info "OpenClaw gateway configured."
 }
@@ -356,11 +369,13 @@ print_summary() {
         echo "  Open WebUI authentication is disabled — anyone on your network can use it."
     fi
     echo ""
-    echo -e "  OpenClaw Gateway Token: ${CYAN}$OPENCLAW_GATEWAY_TOKEN${NC}"
-    echo "  (saved in .env — use this to authenticate with the OpenClaw gateway)"
+    if [ -n "${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
+        echo -e "  OpenClaw Gateway Token: ${CYAN}$OPENCLAW_GATEWAY_TOKEN${NC}"
+        echo "  (stored in ~/.openclaw/openclaw.json)"
+    fi
     echo ""
     echo "  To pair a new browser with OpenClaw:"
-    echo "    1. Open https://$HOST_IP:18789 in your browser"
+    echo "    1. Open https://$HOST_IP:18789 in your browser (accept the self-signed cert)"
     echo "    2. If you see 'pairing required', run on the server:"
     echo "       sudo docker exec -it openclaw openclaw devices approve"
     echo ""
