@@ -192,11 +192,25 @@ EOF
 }
 
 # ------------------------------------------------------------------
-# Prepare directories
+# Prepare directories and generate TLS cert
 # ------------------------------------------------------------------
 prepare_dirs() {
     mkdir -p "$SCRIPT_DIR/nginx/certs"
-    log_info "Nginx configuration ready."
+
+    # Generate self-signed TLS cert for nginx if not already present
+    if [ ! -f "$SCRIPT_DIR/nginx/certs/cert.pem" ]; then
+        HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
+        log_info "Generating self-signed TLS certificate for $HOST_IP..."
+        openssl req -x509 -newkey rsa:2048 \
+            -keyout "$SCRIPT_DIR/nginx/certs/key.pem" \
+            -out "$SCRIPT_DIR/nginx/certs/cert.pem" \
+            -days 365 -nodes \
+            -subj "/CN=openclaw" \
+            -addext "subjectAltName=IP:$HOST_IP,IP:127.0.0.1" 2>/dev/null
+        log_info "TLS certificate generated (self-signed, valid 365 days)."
+    else
+        log_info "TLS certificate already exists, skipping generation."
+    fi
 
     # Create OpenClaw home dir with correct ownership (uid 1000 = node user in container)
     mkdir -p "$OPENCLAW_HOME"
@@ -240,14 +254,14 @@ configure_openclaw() {
     docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw setup 2>&1 || true
     sleep 3
 
-    # Configure gateway via CLI: bind=lan, auth=token, port=18789
+    # Configure gateway via CLI
     log_info "Configuring OpenClaw gateway..."
     docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw config set gateway.mode local 2>/dev/null || true
     docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw config set gateway.bind lan 2>/dev/null || true
     docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw config set gateway.port 18789 2>/dev/null || true
     docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw config set gateway.auth.mode token 2>/dev/null || true
 
-    # Wait for config file to exist
+    # Wait for config file to exist on the host
     RETRIES=0
     MAX_RETRIES=15
     until [ -f "$CONFIG_FILE" ]; do
@@ -259,7 +273,12 @@ configure_openclaw() {
         sleep 2
     done
 
-    # Read the token that OpenClaw generated, sync remote.token, add allowed origins
+    # Stop OpenClaw so config edits aren't reverted by the reload watcher
+    log_info "Stopping OpenClaw to apply configuration..."
+    docker compose -f "$COMPOSE_FILE" stop openclaw 2>/dev/null || true
+    sleep 2
+
+    # Sync remote.token, add allowed origins for nginx HTTPS proxy
     log_info "Syncing tokens and configuring allowed origins..."
     python3 << PYEOF
 import json
@@ -270,7 +289,6 @@ host_ip = "$HOST_IP"
 with open(config_path, "r") as f:
     config = json.load(f)
 
-# Ensure gateway.auth.token exists (generate one if somehow missing)
 gw = config.setdefault("gateway", {})
 auth = gw.setdefault("auth", {})
 if not auth.get("token"):
@@ -285,11 +303,10 @@ gw.setdefault("remote", {})["token"] = token
 # Set bind to lan
 gw["bind"] = "lan"
 
-# Add host IP to allowed origins for Control UI access
+# Allowed origins: nginx HTTPS proxy is how users access the Control UI
 if host_ip:
     origins = [
-        "https://" + host_ip + ":18789",
-        "http://" + host_ip + ":18789",
+        "https://" + host_ip,
     ]
     cui = gw.setdefault("controlUi", {})
     existing = cui.get("allowedOrigins", [])
@@ -301,7 +318,7 @@ if host_ip:
 with open(config_path, "w") as f:
     json.dump(config, f, indent=2)
 
-print("OPENCLAW_TOKEN=" + token)
+print("Token: " + token)
 PYEOF
 
     # Read the token back for use in the summary
@@ -309,10 +326,12 @@ PYEOF
     export OPENCLAW_GATEWAY_TOKEN
 
     chown 1000:1000 "$CONFIG_FILE"
+    # Also fix ownership on any backup files created by config set
+    chown -R 1000:1000 "$OPENCLAW_HOME"
 
-    # Restart OpenClaw to pick up config changes
-    log_info "Restarting OpenClaw to apply configuration..."
-    docker compose -f "$COMPOSE_FILE" restart openclaw
+    # Start OpenClaw with the final config
+    log_info "Starting OpenClaw with final configuration..."
+    docker compose -f "$COMPOSE_FILE" start openclaw
     sleep 5
 
     log_info "OpenClaw gateway configured."
@@ -359,9 +378,11 @@ print_summary() {
     echo -e "${GREEN}  OpenClaw setup complete!${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
-    echo -e "  Open WebUI:       ${CYAN}http://$HOST_IP${NC}"
-    echo -e "  OpenClaw Control: ${CYAN}https://$HOST_IP:18789${NC}"
-    echo -e "  Ollama API:       ${CYAN}http://$HOST_IP/ollama/${NC}"
+    echo -e "  Open WebUI:       ${CYAN}https://$HOST_IP${NC}"
+    echo -e "  OpenClaw Control: ${CYAN}https://$HOST_IP/openclaw/${NC}"
+    echo -e "  Ollama API:       ${CYAN}https://$HOST_IP/ollama/${NC}"
+    echo ""
+    echo "  (Uses a self-signed certificate — accept the browser warning on first visit)"
     echo ""
     if [ "${WEBUI_AUTH}" = "true" ]; then
         echo "  Create your admin account on first visit to Open WebUI."
@@ -375,7 +396,7 @@ print_summary() {
     fi
     echo ""
     echo "  To pair a new browser with OpenClaw:"
-    echo "    1. Open https://$HOST_IP:18789 in your browser (accept the self-signed cert)"
+    echo "    1. Open https://$HOST_IP/openclaw/ in your browser"
     echo "    2. If you see 'pairing required', run on the server:"
     echo "       sudo docker exec -it openclaw openclaw devices approve"
     echo ""

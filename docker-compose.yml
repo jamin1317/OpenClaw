@@ -14,13 +14,15 @@ services:
     image: ghcr.io/openclaw/openclaw:latest
     container_name: openclaw
     restart: unless-stopped
-    network_mode: host
     depends_on:
       - ollama
     volumes:
       - ${OPENCLAW_HOME:-~/.openclaw}:/home/node/.openclaw
+    ports:
+      - "18789:18789"
     environment:
       - OPENCLAW_SANDBOX=${OPENCLAW_SANDBOX:-false}
+      - OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
@@ -43,6 +45,7 @@ services:
     restart: unless-stopped
     depends_on:
       - open-webui
+      - openclaw
       - ollama
     ports:
       - "80:80"

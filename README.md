@@ -101,9 +101,11 @@ The script will:
 
 Once the script completes:
 
-- **Open WebUI**: `http://YOUR_VM_IP` — Chat interface for interacting with LLMs (via Nginx)
-- **OpenClaw Control UI**: `https://YOUR_VM_IP:18789` — AI agent gateway and runtime (direct, self-signed TLS)
-- **Ollama API**: `http://YOUR_VM_IP/ollama/` — Direct model API access (via Nginx)
+- **Open WebUI**: `https://YOUR_VM_IP` — Chat interface for interacting with LLMs
+- **OpenClaw Control UI**: `https://YOUR_VM_IP/openclaw/` — AI agent gateway and runtime
+- **Ollama API**: `https://YOUR_VM_IP/ollama/` — Direct model API access
+
+All services are behind Nginx with a self-signed TLS certificate. Accept the browser warning on first visit.
 
 On first visit to Open WebUI, you'll create an admin account. This is local to your instance.
 
@@ -111,7 +113,7 @@ On first visit to Open WebUI, you'll create an admin account. This is local to y
 
 OpenClaw requires device approval before a browser can access the Control UI:
 
-1. Open `https://YOUR_VM_IP:18789` in your browser (accept the self-signed certificate warning)
+1. Open `https://YOUR_VM_IP/openclaw/` in your browser
 2. If you see "pairing required", run on the server:
    ```bash
    sudo docker exec -it openclaw openclaw devices approve
@@ -123,28 +125,24 @@ OpenClaw requires device approval before a browser can access the Control UI:
 ## Architecture
 
 ```
-                    +-------------------+
-  Port 80/443 ---->|   Nginx Reverse   |
-                    |      Proxy        |
-                    +--------+----------+
-                             |
-                    +--------+--------+
-                    |                 |
-           +-------v--------+ +------v----------+
-           |   Open WebUI   | |     Ollama      |
-           |   (Port 8080)  | |  (Port 11434)   |
-           +-------+--------+ +--------+--------+
-                   |                    ^
-                   +--------------------+
-             Open WebUI talks to Ollama directly
-
-  Port 18789 ----> +----------------+
-    (direct)       |   OpenClaw     |
-                   | (host network) |
-                   +----------------+
+                       +-------------------+
+  Port 80 (redirect)-->|                   |
+  Port 443 (HTTPS) --->|   Nginx Reverse   |
+                       |   Proxy (TLS)     |
+                       +--------+----------+
+                                |
+              +-----------------+-----------------+
+              |                 |                 |
+     +--------v--------+ +-----v-------+ +-------v---------+
+     |   Open WebUI    | |  OpenClaw   | |     Ollama      |
+     |   (Port 8080)   | | (Port 18789)| |  (Port 11434)   |
+     +--------+--------+ +-------------+ +--------+--------+
+              |                                    ^
+              +------------------------------------+
+                Open WebUI talks to Ollama directly
 ```
 
-Nginx proxies Open WebUI and Ollama. OpenClaw runs on host networking with self-signed TLS on port 18789 (accessed directly, not through Nginx).
+All services are behind Nginx with TLS termination. HTTP requests are redirected to HTTPS.
 
 ---
 
