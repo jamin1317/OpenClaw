@@ -83,7 +83,7 @@ Install git and download the setup script:
 sudo apt-get update && sudo apt-get install -y git
 git clone https://github.com/jamin1317/OpenClaw.git
 cd OpenClaw
-chmod +x setup.sh
+chmod +x *.sh
 sudo ./setup.sh
 ```
 

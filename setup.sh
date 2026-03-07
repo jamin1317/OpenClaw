@@ -315,6 +315,9 @@ if host_ip:
             existing.append(origin)
     cui["allowedOrigins"] = existing
 
+# Trust the Docker bridge network so nginx proxy headers are respected
+gw["trustedProxies"] = ["172.16.0.0/12"]
+
 with open(config_path, "w") as f:
     json.dump(config, f, indent=2)
 
