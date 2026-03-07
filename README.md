@@ -16,7 +16,8 @@ No programs or containers are stored in this repository — everything is pulled
 
 ## Prerequisites
 
-- A Proxmox VE host (tested on 8.x)
+- A home lab server running ubuntu. 
+- Below are instructions for installing ubuntu on proxmox.  Installing proxmox is outside the scope of this project.
 - A machine or VM with at least:
   - 4 CPU cores (8+ recommended for larger models)
   - 8 GB RAM (16+ GB recommended)
