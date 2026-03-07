@@ -172,6 +172,13 @@ configure_env() {
         *) OLLAMA_MODEL="llama3.2" ;;
     esac
 
+    # --- Determine OpenClaw home directory ---
+    if [ -n "${SUDO_USER:-}" ]; then
+        OPENCLAW_HOME="$(eval echo "~$SUDO_USER")/.openclaw"
+    else
+        OPENCLAW_HOME="$HOME/.openclaw"
+    fi
+
     # --- Write .env file ---
     log_info "Writing configuration to $ENV_FILE"
     cat > "$ENV_FILE" <<EOF
@@ -179,6 +186,7 @@ configure_env() {
 # Do NOT commit this file to version control.
 
 # OpenClaw
+OPENCLAW_HOME=$OPENCLAW_HOME
 OPENCLAW_GATEWAY_TOKEN=$OPENCLAW_GATEWAY_TOKEN
 OPENCLAW_SANDBOX=$OPENCLAW_SANDBOX
 
@@ -194,9 +202,14 @@ EOF
 # ------------------------------------------------------------------
 # Create certs directory
 # ------------------------------------------------------------------
-prepare_nginx() {
+prepare_dirs() {
     mkdir -p "$SCRIPT_DIR/nginx/certs"
     log_info "Nginx configuration ready."
+
+    # Create OpenClaw home dir with correct ownership (uid 1000 = node user in container)
+    mkdir -p "$OPENCLAW_HOME"
+    chown -R 1000:1000 "$OPENCLAW_HOME"
+    log_info "OpenClaw home directory ready at $OPENCLAW_HOME"
 }
 
 # ------------------------------------------------------------------
@@ -263,9 +276,9 @@ print_summary() {
     echo -e "${GREEN}  OpenClaw setup complete!${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
-    echo -e "  Open WebUI:      ${CYAN}http://$HOST_IP${NC}"
-    echo -e "  OpenClaw Gateway: ${CYAN}http://$HOST_IP/openclaw/${NC}"
-    echo -e "  Ollama API:      ${CYAN}http://$HOST_IP/ollama/${NC}"
+    echo -e "  Open WebUI:       ${CYAN}http://$HOST_IP${NC}"
+    echo -e "  OpenClaw Gateway: ${CYAN}ws://$HOST_IP:18789${NC}"
+    echo -e "  Ollama API:       ${CYAN}http://$HOST_IP/ollama/${NC}"
     echo ""
     if [ "${WEBUI_AUTH}" = "true" ]; then
         echo "  Create your admin account on first visit to Open WebUI."
@@ -300,7 +313,7 @@ main() {
     install_prerequisites
     install_docker
     configure_env
-    prepare_nginx
+    prepare_dirs
     start_containers
     onboard_model
     print_summary

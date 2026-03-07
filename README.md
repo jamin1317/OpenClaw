@@ -173,7 +173,7 @@ sudo docker compose up -d
 | Can't reach the web UI | Check `sudo docker compose ps` — all 4 containers should be running. Check your firewall with `sudo ufw status`. |
 | Ollama model download is slow | Large models (13B+) are many GB. Be patient or start with a smaller model like `tinyllama`. |
 | Out of memory errors | Reduce model size or increase VM RAM. 7B models need ~4 GB RAM, 13B need ~8 GB. |
-| GPU not detected by Ollama | You need to configure GPU passthrough in Proxmox and install the NVIDIA Container Toolkit. See [Ollama Docker GPU docs](https://github.com/ollama/ollama/blob/main/docs/docker.md). |
+| GPU not detected by Ollama | You need to configure GPU passthrough in Proxmox and install the NVIDIA Container Toolkit. See [Proxmox GPU docs](https://pve.proxmox.com/wiki/PCI_Passthrough#GPU_passthrough). |
 | OpenClaw gateway unreachable | Verify the container is running and check logs with `sudo docker compose logs openclaw`. |
 
 ---
