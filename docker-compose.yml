@@ -18,7 +18,7 @@ services:
     depends_on:
       - ollama
     volumes:
-      - ${OPENCLAW_HOME:-~/.openclaw}:/home/node/.openclaw
+      - ${OPENCLAW_HOME:-~/.openclaw}:/home/node
     environment:
       - OPENCLAW_GATEWAY_BIND=lan
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
