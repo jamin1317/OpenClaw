@@ -77,9 +77,10 @@ SSH into your new Ubuntu VM:
 ssh your-username@YOUR_VM_IP
 ```
 
-Download and run the setup script:
+Install git and download the setup script:
 
 ```bash
+sudo apt-get update && sudo apt-get install -y git
 git clone https://github.com/jamin1317/OpenClaw.git
 cd OpenClaw
 chmod +x setup.sh
@@ -91,7 +92,8 @@ The script will:
 2. Prompt you for configuration (gateway token, passwords, which LLM to download)
 3. Generate a `.env` file with your settings
 4. Start all four containers (Nginx, OpenClaw, Open WebUI, Ollama)
-5. Pull your chosen LLM into Ollama
+5. Sync the gateway token and configure OpenClaw for remote access
+6. Pull your chosen LLM into Ollama
 
 ---
 
@@ -99,11 +101,22 @@ The script will:
 
 Once the script completes:
 
-- **Open WebUI**: `http://YOUR_VM_IP` — Chat interface for interacting with LLMs
-- **OpenClaw Gateway**: `http://YOUR_VM_IP/openclaw/` — AI agent gateway and runtime
-- **Ollama API**: `http://YOUR_VM_IP/ollama/` — Direct model API access
+- **Open WebUI**: `http://YOUR_VM_IP` — Chat interface for interacting with LLMs (via Nginx)
+- **OpenClaw Control UI**: `https://YOUR_VM_IP:18789` — AI agent gateway and runtime (direct, self-signed TLS)
+- **Ollama API**: `http://YOUR_VM_IP/ollama/` — Direct model API access (via Nginx)
 
 On first visit to Open WebUI, you'll create an admin account. This is local to your instance.
+
+### Pairing a Browser with OpenClaw
+
+OpenClaw requires device approval before a browser can access the Control UI:
+
+1. Open `https://YOUR_VM_IP:18789` in your browser (accept the self-signed certificate warning)
+2. If you see "pairing required", run on the server:
+   ```bash
+   sudo docker exec -it openclaw openclaw devices approve
+   ```
+3. Refresh the browser page
 
 ---
 
@@ -115,18 +128,23 @@ On first visit to Open WebUI, you'll create an admin account. This is local to y
                     |      Proxy        |
                     +--------+----------+
                              |
-           +-----------------+------------------+
-           |                 |                  |
-  +--------v--------+ +-----v------+  +--------v--------+
-  |   Open WebUI    | |  OpenClaw  |  |     Ollama      |
-  |   (Port 8080)   | | (Port 18789)| |  (Port 11434)   |
-  +--------+--------+ +------------+  +--------+--------+
-           |                                    ^
-           +------------------------------------+
-              Open WebUI talks to Ollama directly
+                    +--------+--------+
+                    |                 |
+           +-------v--------+ +------v----------+
+           |   Open WebUI   | |     Ollama      |
+           |   (Port 8080)  | |  (Port 11434)   |
+           +-------+--------+ +--------+--------+
+                   |                    ^
+                   +--------------------+
+             Open WebUI talks to Ollama directly
+
+  Port 18789 ----> +----------------+
+    (direct)       |   OpenClaw     |
+                   | (host network) |
+                   +----------------+
 ```
 
-Nginx provides a single entry point for browser access. Open WebUI communicates with Ollama over the Docker network.
+Nginx proxies Open WebUI and Ollama. OpenClaw runs on host networking with self-signed TLS on port 18789 (accessed directly, not through Nginx).
 
 ---
 
@@ -175,6 +193,8 @@ sudo docker compose up -d
 | Out of memory errors | Reduce model size or increase VM RAM. 7B models need ~4 GB RAM, 13B need ~8 GB. |
 | GPU not detected by Ollama | You need to configure GPU passthrough in Proxmox and install the NVIDIA Container Toolkit. See [Proxmox GPU docs](https://pve.proxmox.com/wiki/PCI_Passthrough#GPU_passthrough). |
 | OpenClaw gateway unreachable | Verify the container is running and check logs with `sudo docker compose logs openclaw`. |
+| OpenClaw "origin not allowed" | The setup script auto-configures allowed origins. If accessing from a new IP, edit `~/.openclaw/openclaw.json` and add it to `gateway.controlUi.allowedOrigins`, then restart: `sudo docker compose restart openclaw`. |
+| OpenClaw "pairing required" | Run `sudo docker exec -it openclaw openclaw devices approve` on the server, then refresh your browser. |
 
 ---
 

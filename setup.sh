@@ -236,6 +236,76 @@ start_containers() {
 }
 
 # ------------------------------------------------------------------
+# Configure OpenClaw gateway tokens and allowed origins
+# ------------------------------------------------------------------
+configure_openclaw() {
+    local CONFIG_FILE="$OPENCLAW_HOME/openclaw.json"
+
+    log_info "Waiting for OpenClaw to initialize..."
+    RETRIES=0
+    MAX_RETRIES=30
+    until [ -f "$CONFIG_FILE" ]; do
+        RETRIES=$((RETRIES + 1))
+        if [ "$RETRIES" -ge "$MAX_RETRIES" ]; then
+            log_warn "OpenClaw config not found at $CONFIG_FILE — skipping token sync."
+            return
+        fi
+        sleep 2
+    done
+    sleep 2
+
+    HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
+
+    log_info "Syncing gateway token and configuring allowed origins..."
+    python3 << PYEOF
+import json
+
+config_path = "$CONFIG_FILE"
+token = "$OPENCLAW_GATEWAY_TOKEN"
+host_ip = "$HOST_IP"
+
+with open(config_path, "r") as f:
+    config = json.load(f)
+
+# Sync auth and remote tokens to match the env var
+config.setdefault("gateway", {})
+config["gateway"].setdefault("auth", {})["token"] = token
+config["gateway"].setdefault("remote", {})["token"] = token
+
+# Add host IP to allowed origins for Control UI access
+if host_ip:
+    origins = [
+        "https://" + host_ip + ":18789",
+        "http://" + host_ip + ":18789",
+    ]
+    config["gateway"].setdefault("controlUi", {})
+    existing = config["gateway"]["controlUi"].get("allowedOrigins", [])
+    for origin in origins:
+        if origin not in existing:
+            existing.append(origin)
+    config["gateway"]["controlUi"]["allowedOrigins"] = existing
+
+with open(config_path, "w") as f:
+    json.dump(config, f, indent=2)
+
+print("Token synced and allowed origins configured.")
+PYEOF
+
+    chown 1000:1000 "$CONFIG_FILE"
+
+    # Restart OpenClaw to pick up config changes
+    log_info "Restarting OpenClaw to apply configuration..."
+    docker compose -f "$COMPOSE_FILE" restart openclaw
+    sleep 5
+
+    # Approve all pending devices
+    log_info "Approving pending devices..."
+    docker compose -f "$COMPOSE_FILE" exec -T openclaw openclaw devices approve --all 2>/dev/null || true
+
+    log_info "OpenClaw gateway configured."
+}
+
+# ------------------------------------------------------------------
 # Pull the selected LLM into Ollama
 # ------------------------------------------------------------------
 onboard_model() {
@@ -277,7 +347,7 @@ print_summary() {
     echo -e "${GREEN}========================================${NC}"
     echo ""
     echo -e "  Open WebUI:       ${CYAN}http://$HOST_IP${NC}"
-    echo -e "  OpenClaw Gateway: ${CYAN}ws://$HOST_IP:18789${NC}"
+    echo -e "  OpenClaw Control: ${CYAN}https://$HOST_IP:18789${NC}"
     echo -e "  Ollama API:       ${CYAN}http://$HOST_IP/ollama/${NC}"
     echo ""
     if [ "${WEBUI_AUTH}" = "true" ]; then
@@ -288,6 +358,11 @@ print_summary() {
     echo ""
     echo -e "  OpenClaw Gateway Token: ${CYAN}$OPENCLAW_GATEWAY_TOKEN${NC}"
     echo "  (saved in .env — use this to authenticate with the OpenClaw gateway)"
+    echo ""
+    echo "  To pair a new browser with OpenClaw:"
+    echo "    1. Open https://$HOST_IP:18789 in your browser"
+    echo "    2. If you see 'pairing required', run on the server:"
+    echo "       sudo docker exec -it openclaw openclaw devices approve"
     echo ""
     if [ -n "${OLLAMA_MODEL:-}" ]; then
         echo -e "  Loaded model: ${CYAN}$OLLAMA_MODEL${NC}"
@@ -315,6 +390,7 @@ main() {
     configure_env
     prepare_dirs
     start_containers
+    configure_openclaw
     onboard_model
     print_summary
 }
