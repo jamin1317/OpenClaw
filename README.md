@@ -1,3 +1,11 @@
+# Warning 
+
+# Warning
+
+# Warning
+
+- **This is a work in progress.  Nothing here has been tested yet!**
+
 # OpenClaw
 
 One-script deployment of [OpenClaw](https://docs.openclaw.ai) + [Open WebUI](https://github.com/open-webui/open-webui) + [Ollama](https://ollama.com) behind an Nginx reverse proxy. Designed for home lab use on an Ubuntu server.
