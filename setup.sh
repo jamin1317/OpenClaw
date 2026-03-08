@@ -112,11 +112,7 @@ configure_env() {
     fi
 
     # --- Open WebUI Secret Key ---
-    DEFAULT_SECRET=$(openssl rand -hex 32)
-    echo ""
-    echo "Open WebUI uses a secret key to sign session tokens."
-    read -rp "WebUI Secret Key [auto-generated]: " WEBUI_SECRET_KEY
-    WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-$DEFAULT_SECRET}"
+    WEBUI_SECRET_KEY=$(openssl rand -hex 32)
 
     # --- Open WebUI Authentication ---
     echo ""
@@ -399,7 +395,7 @@ print_summary() {
         echo ""
         echo "  To connect a browser to OpenClaw:"
         echo "    1. Open this URL to set the token:"
-        echo -e "       ${CYAN}https://$HOST_IP/openclaw/token=$OPENCLAW_GATEWAY_TOKEN${NC}"
+        echo -e "       ${CYAN}https://$HOST_IP/openclaw/?token=$OPENCLAW_GATEWAY_TOKEN${NC}"
         echo "    2. Approve the device pairing on the server:"
         echo "       sudo ./approve-pairing.sh"
     fi

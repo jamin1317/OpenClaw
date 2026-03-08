@@ -115,7 +115,7 @@ OpenClaw requires a gateway token and device approval before a browser can acces
 
 1. Set the gateway token by opening this URL in your browser (replace `YOUR_TOKEN` with the token shown at the end of setup):
    ```
-   https://YOUR_VM_IP/openclaw/token=YOUR_TOKEN
+   https://YOUR_VM_IP/openclaw/?token=YOUR_TOKEN
    ```
 2. Approve the device pairing on the server:
    ```bash
