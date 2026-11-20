@@ -40,7 +40,7 @@ services:
       - WEBUI_AUTH=${WEBUI_AUTH:-true}
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.31.9-alpine
     container_name: nginx-proxy
     restart: unless-stopped
     depends_on:
